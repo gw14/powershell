@@ -72,3 +72,205 @@ Writing well-structured and maintainable PowerShell functions is crucial for cre
 * **Dot-Sourcing:** When developing, you can dot-source your function files (`. .\MyFunction.ps1`) to load them into your current session.
 
 By adhering to these best practices, you'll create PowerShell functions that are efficient, maintainable, reusable, and easy for others (and your future self) to understand and use.
+
+Okay, here's an example PowerShell function, `Get-MyServiceHealth`, designed to demonstrate many of the best practices discussed in the review.
+
+This function will:
+
+  * Retrieve the health status of one or more specified services on one or more computers.
+  * Allow checking if the service is currently running.
+  * Return custom objects for easy piping and filtering.
+  * Include robust parameter validation.
+  * Implement error handling.
+  * Provide detailed comment-based help.
+  * Support common PowerShell features like `-Verbose`, `-Debug`, and pipeline input.
+
+<!-- end list -->
+
+```powershell
+function Get-MyServiceHealth {
+    <#
+    .SYNOPSIS
+    Retrieves the health and status of specified Windows services on local or remote computers.
+
+    .DESCRIPTION
+    This advanced function checks the current status of one or more Windows services
+    by their display name across a specified set of computers. It returns a custom
+    object for each service and computer combination, indicating its name, the target
+    computer, and its current status. It also includes an option to specifically check
+    if the service is in a 'Running' state.
+
+    .PARAMETER ServiceDisplayName
+    Specifies the display name(s) of the service(s) to check. This parameter is mandatory.
+    Supports pipeline input by property name, allowing you to pass objects with a
+    'ServiceDisplayName' property (e.g., from 'Get-Service' output or a custom list).
+
+    .PARAMETER ComputerName
+    Specifies the name(s) of the computer(s) on which to check the service status.
+    Defaults to 'localhost' if not specified. Supports multiple computer names.
+
+    .PARAMETER CheckRunning
+    A switch parameter. If present, the function will specifically check if the service
+    is in a 'Running' state and include a boolean property 'IsRunning' in the output object.
+
+    .EXAMPLE
+    Get-MyServiceHealth -ServiceDisplayName "Spooler" -ComputerName "Server01"
+
+    This command gets the health status of the "Print Spooler" service on "Server01".
+
+    .EXAMPLE
+    "Windows Update", "BITS" | Get-MyServiceHealth -ComputerName "Server02", "Server03" -CheckRunning
+
+    This command pipes two service display names to the function, checking their health
+    and whether they are running on "Server02" and "Server03".
+
+    .EXAMPLE
+    Get-Service | Where-Object { $_.DisplayName -like "*Windows*" } | Get-MyServiceHealth
+
+    This command retrieves all services with "Windows" in their display name on the local machine
+    and then pipes them to Get-MyServiceHealth to get their detailed status.
+
+    .NOTES
+    - Requires appropriate network access and permissions to connect to remote computers.
+    - Errors for unreachable computers or non-existent services will be caught and reported.
+    - Uses 'Write-Verbose' for detailed operational information.
+    #>
+    [CmdletBinding(DefaultParameterSetName='ByName', SupportsShouldProcess=$true)]
+    param(
+        [Parameter(Mandatory=$true,
+                   Position=0,
+                   ValueFromPipeline=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   HelpMessage="Specify the display name(s) of the service(s) to check.")]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$ServiceDisplayName,
+
+        [Parameter(HelpMessage="Specify the computer name(s) to check.")]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$ComputerName = @("localhost"),
+
+        [Parameter(HelpMessage="Indicates if the function should specifically check if the service is running.")]
+        [switch]$CheckRunning
+    )
+
+    BEGIN {
+        Write-Verbose "Starting Get-MyServiceHealth function."
+    }
+
+    PROCESS {
+        foreach ($computer in $ComputerName) {
+            Write-Verbose "Processing computer: '$computer'"
+            foreach ($serviceDisplayName in $ServiceDisplayName) {
+                Write-Verbose "Attempting to retrieve service '$serviceDisplayName' on '$computer'."
+
+                # Use ShouldProcess for WhatIf/Confirm support
+                if ($PSCmdlet.ShouldProcess("service '$serviceDisplayName' on '$computer'", "Get health status for")) {
+                    $service = $null
+                    try {
+                        # Use Get-Service -DisplayName for robustness, -ComputerName for remote
+                        $service = Get-Service -DisplayName $serviceDisplayName -ComputerName $computer -ErrorAction Stop
+                        Write-Verbose "Successfully retrieved service object for '$serviceDisplayName' on '$computer'."
+
+                        $outputObject = [PSCustomObject]@{
+                            ComputerName    = $computer
+                            ServiceDisplayName = $service.DisplayName
+                            ServiceName     = $service.Name # Include technical name as well
+                            Status          = $service.Status.ToString()
+                            CanPauseAndContinue = $service.CanPauseAndContinue
+                            CanShutdown     = $service.CanShutdown
+                            CanStop         = $service.CanStop
+                        }
+
+                        # Add IsRunning property if -CheckRunning switch is used
+                        if ($CheckRunning) {
+                            $outputObject | Add-Member -MemberType NoteProperty -Name IsRunning -Value ($service.Status -eq 'Running') -Force
+                            Write-Verbose "Added IsRunning property: $($service.Status -eq 'Running') for '$serviceDisplayName' on '$computer'."
+                        }
+
+                        # Output the custom object
+                        $outputObject
+
+                    }
+                    catch {
+                        # Catch specific errors for non-existent service or unreachable computer
+                        $errorMessage = "Failed to retrieve service '$serviceDisplayName' on '$computer'."
+                        $errorDetails = $_.Exception.Message
+                        Write-Error -Message "$errorMessage Details: $errorDetails" -Category ObjectNotFound -TargetObject $serviceDisplayName -RecommendedAction "Verify service name or computer accessibility."
+
+                        # Optionally, output an object indicating failure
+                        [PSCustomObject]@{
+                            ComputerName    = $computer
+                            ServiceDisplayName = $serviceDisplayName
+                            ServiceName     = "N/A"
+                            Status          = "Error"
+                            ErrorMessage    = $errorDetails
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    END {
+        Write-Verbose "Finished Get-MyServiceHealth function."
+    }
+}
+
+# --- Example Usage ---
+
+Write-Host "`n--- Example 1: Get single service health on local machine ---" -ForegroundColor Cyan
+Get-MyServiceHealth -ServiceDisplayName "Windows Update"
+
+Write-Host "`n--- Example 2: Get multiple services, with -CheckRunning, on localhost ---" -ForegroundColor Cyan
+Get-MyServiceHealth -ServiceDisplayName "Print Spooler", "BITS" -CheckRunning
+
+Write-Host "`n--- Example 3: Demonstrate pipeline input (e.g., from Get-Service) ---" -ForegroundColor Cyan
+Get-Service | Where-Object { $_.DisplayName -like "*defender*" } | Select-Object -First 1 DisplayName | Get-MyServiceHealth -Verbose
+
+Write-Host "`n--- Example 4: Demonstrate error handling for a non-existent service ---" -ForegroundColor Cyan
+Get-MyServiceHealth -ServiceDisplayName "NonExistentService123" -ErrorAction Continue # ErrorAction Continue to show the error, default is Stop
+
+Write-Host "`n--- Example 5: Demonstrate -WhatIf (no changes are made, just shows what would happen) ---" -ForegroundColor Cyan
+Get-MyServiceHealth -ServiceDisplayName "Spooler" -WhatIf
+
+Write-Host "`n--- Example 6: Demonstrate -Verbose output ---" -ForegroundColor Cyan
+Get-MyServiceHealth -ServiceDisplayName "Spooler" -Verbose
+
+# --- To use the help for this function ---
+# Get-Help Get-MyServiceHealth
+# Get-Help Get-MyServiceHealth -Full
+# Get-Help Get-MyServiceHealth -Examples
+```
+
+### Breakdown of Best Practices Applied:
+
+1.  **Naming Convention:** `Get-MyServiceHealth` follows Verb-Noun. "Get" is an approved verb. "MyServiceHealth" is a descriptive, singular noun with a prefix (`My`) to prevent potential conflicts if this were part of a larger module.
+2.  **`CmdletBinding`:** `[CmdletBinding(DefaultParameterSetName='ByName', SupportsShouldProcess=$true)]` transforms it into an advanced function, enabling `-Verbose`, `-Debug`, `-WhatIf`, and `-Confirm` (via `ShouldProcess`).
+3.  **Clearly Defined Parameters:**
+      * **Type Constraints:** `[string[]]$ServiceDisplayName`, `[string[]]$ComputerName`, `[switch]$CheckRunning`.
+      * **Parameter Attributes:**
+          * `[Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]` for `ServiceDisplayName`. This makes it required, allows positional input, and enables pipeline input by value or property name.
+          * `[ValidateNotNullOrEmpty()]` ensures input isn't empty.
+          * `HelpMessage` provides inline help for parameters.
+      * **Default Values:** `ComputerName = @("localhost")` provides a sensible default.
+      * **Consistent Naming:** `ServiceDisplayName`, `ComputerName`, `CheckRunning` are PascalCase and consistent with common PowerShell parameter naming.
+4.  **Error Handling (`Try-Catch`):**
+      * A `try` block wraps the `Get-Service` call, as this is the most likely point of failure (service not found, computer unreachable).
+      * The `catch` block intercepts errors, provides an informative error message using `Write-Error` (which creates an error record in `$Error`), and optionally outputs a partial object indicating the failure.
+      * `ErrorAction Stop` is used with `Get-Service` to ensure that errors from the inner cmdlet are converted into terminating errors that the `catch` block can handle.
+5.  **Output Objects:**
+      * The function returns a `[PSCustomObject]` with relevant properties (`ComputerName`, `ServiceDisplayName`, `Status`, etc.). This makes the output structured and easily usable in the pipeline (e.g., `... | Where-Object { $_.Status -eq 'Running' }`).
+      * `Add-Member` is used to dynamically add the `IsRunning` property based on the `-CheckRunning` switch, showcasing flexible object construction.
+      * `Write-Host` is *not* used for primary output.
+6.  **Output and Logging:**
+      * `Write-Verbose` is used extensively to show the internal workings and progress when the `-Verbose` switch is used.
+      * `Write-Error` is used for reporting actual errors.
+7.  **Documentation (Comment-Based Help):** The function includes a comprehensive comment block at the top, allowing `Get-Help Get-MyServiceHealth` to provide detailed information, examples, and parameter descriptions.
+8.  **Single Responsibility:** The function's primary purpose is clearly defined: *get* the *health* of *services*. It doesn't try to stop, start, or configure services.
+9.  **Readability:**
+      * Consistent indentation and spacing.
+      * Descriptive variable names (`$computer`, `$serviceDisplayName`, `$outputObject`).
+      * Comments are used to explain non-obvious logic (though this example is fairly straightforward, demonstrating where they *would* go).
+10. **Testability:** By adhering to single responsibility, clear inputs/outputs, and avoiding reliance on global state, this function is much easier to unit test with frameworks like Pester.
+11. **Modularity:** While this is a single file, it's written in a way that it could easily be placed into a `.psm1` PowerShell module file alongside other related functions.
+12. **`ShouldProcess`:** Included to demonstrate support for `-WhatIf` and `-Confirm` for actions that *could* modify the system (even though this `Get` function doesn't, it's good practice for other function types).
