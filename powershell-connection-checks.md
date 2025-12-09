@@ -46,3 +46,87 @@ The primary and most versatile PowerShell cmdlet for replacing `telnet`, `netsta
 | **Perform a traceroute** (similar to `tracert`). | `Test-NetConnection -ComputerName ServerName -TraceRoute` |
 
 Would you like to see how to wrap one of these commands into a simple function to make it feel even more like the classic command-line tools?
+
+Sure! PowerShell has several built-in cmdlets that replace or extend what **nslookup** does—often with much more structured output.
+
+Here are the best **PowerShell alternatives to nslookup**:
+
+---
+
+# ✅ **1. Resolve-DnsName** (The direct replacement)
+
+This is the *modern* and recommended cmdlet.
+
+### Example – simple A record lookup
+
+```powershell
+Resolve-DnsName google.com
+```
+
+### Example – specific record type
+
+```powershell
+Resolve-DnsName google.com -Type MX
+```
+
+### Example – query a specific DNS server
+
+```powershell
+Resolve-DnsName microsoft.com -Server 1.1.1.1
+```
+
+### Example – full detailed output
+
+```powershell
+Resolve-DnsName cloudflare.com -DnsOnly
+```
+
+---
+
+# ✅ **2. Test-NetConnection** (Quick checks)
+
+Useful to check DNS AND connectivity.
+
+### Example – DNS lookup + port test
+
+```powershell
+Test-NetConnection google.com
+```
+
+### Example – test DNS specifically
+
+```powershell
+Test-NetConnection -ComputerName google.com -Port 53
+```
+
+---
+
+# ✅ **3. System.Net.Dns .NET class** (Fast & simple)
+
+Good for quick scripts.
+
+### Example – basic lookup
+
+```powershell
+[System.Net.Dns]::GetHostAddresses("google.com")
+```
+
+### Example – reverse lookup
+
+```powershell
+[System.Net.Dns]::GetHostEntry("8.8.8.8")
+```
+
+---
+
+# ✅ **4. Using `nslookup` inside PowerShell**
+
+Just in case you still need it:
+
+```powershell
+nslookup google.com
+```
+
+Runs the classic tool.
+
+
